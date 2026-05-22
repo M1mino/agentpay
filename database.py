@@ -44,8 +44,14 @@ def init_db():
             id INTEGER PRIMARY KEY CHECK (id = 1),
             value INTEGER NOT NULL DEFAULT 0
         );
-
         INSERT OR IGNORE INTO nonce (id, value) VALUES (1, 0);
+
+        CREATE TABLE IF NOT EXISTS wallet_state (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            last_balance REAL NOT NULL DEFAULT 0.0,
+            last_block INTEGER NOT NULL DEFAULT 0
+        );
+        INSERT OR IGNORE INTO wallet_state (id, last_balance) VALUES (1, 0.0);
     """)
     conn.commit()
     conn.close()
@@ -139,3 +145,23 @@ def next_nonce() -> int:
     row = conn.execute("SELECT value FROM nonce WHERE id = 1").fetchone()
     conn.close()
     return row["value"]
+
+
+# ─── Состояние кошелька ─────────────────────────────────────
+
+
+def get_wallet_state() -> dict:
+    conn = get_db()
+    row = conn.execute("SELECT * FROM wallet_state WHERE id = 1").fetchone()
+    conn.close()
+    return dict(row)
+
+
+def update_wallet_state(last_balance: float, last_block: int = 0):
+    conn = get_db()
+    conn.execute(
+        "UPDATE wallet_state SET last_balance = ?, last_block = ? WHERE id = 1",
+        (last_balance, last_block),
+    )
+    conn.commit()
+    conn.close()

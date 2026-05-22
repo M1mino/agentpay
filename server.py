@@ -13,6 +13,7 @@ from config import (
 from database import (
     init_db, register_agent, get_agent, get_balance,
     update_balance, add_transaction, get_transactions, next_nonce,
+    get_wallet_state, update_wallet_state,
 )
 from models import (
     RegisterRequest, RegisterResponse, BalanceResponse,
@@ -87,27 +88,32 @@ def topup(req: TopupRequest):
 
 @app.post("/topup/confirm/{address}")
 def confirm_topup(address: str):
-    """Проверяет, пришли ли USDC на наш кошелёк, и зачисляет CREDIT."""
+    """Проверяет рост баланса кошелька и зачисляет CREDIT."""
     agent = get_agent(address)
     if not agent:
         make_error(1002, "Агент не зарегистрирован")
 
-    # Проверяем баланс нашего кошелька
-    balance_usdc = get_usdc_balance(AGENTPAY_WALLET)
-    # Для MVP: заглушка — всегда успех
-    # В реальности: парсим Transfer events от адреса агента
+    wallet = get_wallet_state()
+    last_balance = wallet["last_balance"]
 
-    amount = 10.0  # заглушка
+    balance_now = get_usdc_balance(AGENTPAY_WALLET)
+    if balance_now <= last_balance:
+        make_error(1010, "Новых поступлений USDC не обнаружено")
+
+    amount = balance_now - last_balance
     fee = round(amount * FEE_PERCENT / 100, 2)
     credit_amount = amount - fee
     new_balance = agent["balance"] + credit_amount
+
+    # Обновляем состояние кошелька
+    update_wallet_state(balance_now)
 
     tx_id = f"topup_{uuid.uuid4().hex[:12]}"
     update_balance(address, new_balance)
     add_transaction(tx_id, "topup", None, address, amount, fee)
 
-    return {"tx_id": tx_id, "amount": amount, "credited": credit_amount,
-            "new_balance": new_balance, "status": "completed"}
+    return {"tx_id": tx_id, "amount": round(amount, 2), "credited": round(credit_amount, 2),
+            "new_balance": round(new_balance, 2), "status": "completed"}
 
 
 # ─── Перевод (pay) ──────────────────────────────────────────
