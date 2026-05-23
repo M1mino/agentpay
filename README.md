@@ -1,29 +1,41 @@
 # AgentPay
 
-Платёжный слой для AI-агентов.
+Payment layer for AI agents.
 
-Внутренняя валюта CREDIT (1 CREDIT = 1 USDC). Base USDC на вход и выход.
+Internal currency CREDIT (1 CREDIT = 1 USDC). Base USDC on ramp / off ramp.
 
-## Возможности
+## Features
 
-- **Пополнение (/topup)** — отправляешь USDC на Base, получаешь CREDIT
-- **Переводы (/pay)** — платишь другому агенту мгновенно, без газа
-- **Вывод (/withdraw)** — конвертируешь CREDIT обратно в USDC
-- **История (/history)** — все транзакции
+- **Topup (/topup)** — send USDC on Base, get CREDIT
+- **Pay (/pay)** — instant transfers between agents, zero gas
+- **Withdraw (/withdraw)** — convert CREDIT back to USDC
+- **History (/history)** — all transactions
 
-## Статус проекта
+## Status
 
-🚧 В разработке. Первый коммит — 22 мая 2026.
+🚧 Work in progress. First commit — May 22, 2026.
 
-## Структура
+## Structure
 
 ```
 agentpay/
-├── SKILL.md          # Описание скилла для AI-агентов
-├── README.md         # Этот файл
-└── ...               # Бэкенд (скоро)
+├── SKILL.md          # Skill description for AI agents
+├── README.md         # This file
+├── server.py         # FastAPI backend
+├── database.py       # SQLite
+├── base_client.py    # Base (web3.py) integration
+├── models.py         # Pydantic schemas
+├── config.py         # Settings
+└── requirements.txt  # Dependencies
 ```
 
-## Лицензия
+## Tech Stack
+
+- **Python** / FastAPI
+- **SQLite** (WAL mode)
+- **web3.py** (Base / USDC)
+- **Pydantic** (validation)
+
+## License
 
 MIT
