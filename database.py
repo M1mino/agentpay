@@ -52,6 +52,17 @@ def init_db():
             last_block INTEGER NOT NULL DEFAULT 0
         );
         INSERT OR IGNORE INTO wallet_state (id, last_balance) VALUES (1, 0.0);
+
+        CREATE TABLE IF NOT EXISTS agent_nonces (
+            address TEXT PRIMARY KEY,
+            nonce INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS processed_events (
+            tx_hash TEXT PRIMARY KEY,
+            event_type TEXT NOT NULL,
+            processed_at TEXT NOT NULL
+        );
     """)
     conn.commit()
     conn.close()
@@ -165,3 +176,56 @@ def update_wallet_state(last_balance: float, last_block: int = 0):
     )
     conn.commit()
     conn.close()
+
+
+# ─── Nonce для агентов ────────────────────────────────────────
+
+
+def get_agent_nonce(address: str) -> int:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT nonce FROM agent_nonces WHERE address = ?", (address,)
+    ).fetchone()
+    if not row:
+        conn.execute("INSERT INTO agent_nonces (address, nonce) VALUES (?, 0)", (address,))
+        conn.commit()
+        conn.close()
+        return 0
+    conn.close()
+    return row["nonce"]
+
+
+def increment_agent_nonce(address: str) -> int:
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO agent_nonces (address, nonce) VALUES (?, 1) "
+        "ON CONFLICT(address) DO UPDATE SET nonce = nonce + 1",
+        (address,),
+    )
+    conn.commit()
+    row = conn.execute("SELECT nonce FROM agent_nonces WHERE address = ?", (address,)).fetchone()
+    conn.close()
+    return row["nonce"]
+
+
+# ─── Processed events (защита от повторной обработки) ─────────
+
+
+def mark_event_processed(tx_hash: str, event_type: str):
+    now = datetime.utcnow().isoformat()
+    conn = get_db()
+    conn.execute(
+        "INSERT OR IGNORE INTO processed_events (tx_hash, event_type, processed_at) VALUES (?, ?, ?)",
+        (tx_hash, event_type, now),
+    )
+    conn.commit()
+    conn.close()
+
+
+def is_event_processed(tx_hash: str) -> bool:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT 1 FROM processed_events WHERE tx_hash = ?", (tx_hash,)
+    ).fetchone()
+    conn.close()
+    return row is not None

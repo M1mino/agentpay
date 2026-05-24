@@ -1,4 +1,4 @@
-"""AgentPay — интеграция с Base (read-only для старта)."""
+"""AgentPay — интеграция с Base."""
 
 import os
 from web3 import Web3
@@ -6,7 +6,7 @@ from config import BASE_RPC, USDC_CONTRACT, AGENTPAY_WALLET, AGENTPAY_PRIVATE_KE
 
 w3 = Web3(Web3.HTTPProvider(BASE_RPC))
 
-# USDC contract ABI — минимум для проверки баланса и транзакций
+# USDC contract ABI — минимум для проверки баланса, Transfer events, allowance
 USDC_ABI = [
     {
         "constant": True,
@@ -51,13 +51,105 @@ def get_usdc_balance(address: str) -> float:
     return balance / 10**6  # USDC имеет 6 decimals
 
 
-def check_incoming_usdc(agent_address: str, expected_amount: float) -> bool:
-    """Проверяет, пришёл ли USDC от агента на наш кошелёк.
-    Read-only — не требует приватного ключа."""
-    our_balance = get_usdc_balance(AGENTPAY_WALLET)
-    # Для старта: просто проверяем что баланс вырос
-    # В реальности: парсим Transfer events
-    return our_balance >= expected_amount
+# ─── Верификация подписи (EIP-191) ────────────────────────────
+
+
+def build_message(action: str, sender: str, recipient: str, amount: float, nonce: int) -> str:
+    """Собирает сообщение для подписи.
+
+    Агент подписывает своим приватным ключом Ethereum.
+    Формат: agentpay_v1:{action}:{sender}:{recipient}:{amount}:{nonce}
+    """
+    return f"agentpay_v1:{action}:{sender}:{recipient}:{amount}:{nonce}"
+
+
+def recover_signer(message: str, signature: str) -> str:
+    """Восстанавливает адрес отправителя из подписи EIP-191.
+
+    Возвращает: 0x-адрес, который подписал сообщение.
+    """
+    message_hash = Web3.keccak(text=f"\x19Ethereum Signed Message:\n{len(message)}{message}")
+    recovered = w3.eth.account.recover_hash(message_hash, signature=signature)
+    return recovered
+
+
+def verify_signature(action: str, sender: str, recipient: str, amount: float, nonce: int, signature: str) -> bool:
+    """Проверяет подпись. Возвращает True если подпись верна."""
+    message = build_message(action, sender, recipient, amount, nonce)
+    try:
+        recovered = recover_signer(message, signature)
+        return recovered.lower() == sender.lower()
+    except Exception:
+        return False
+
+
+# ─── Transfer events (для верификации topup) ───────────────────
+
+
+def get_usdc_transfers(since_block: int | None = None) -> list[dict]:
+    """Получает Transfer events USDC на наш кошелёк.
+
+    Возвращает список: [{from, to, value, tx_hash, block_number}]
+    """
+    to_checksum = Web3.to_checksum_address(AGENTPAY_WALLET)
+
+    if since_block is None:
+        since_block = w3.eth.block_number - 5000  # ~24 часов
+
+    to_block = w3.eth.block_number
+
+    event_filter = usdc_contract.events.Transfer.create_filter(
+        argument_filters={"to": to_checksum},
+        from_block=since_block,
+        to_block=to_block,
+    )
+
+    events = []
+    for entry in event_filter.get_all_entries():
+        events.append({
+            "from": entry["args"]["from"],
+            "to": entry["args"]["to"],
+            "value": entry["args"]["value"] / 10**6,
+            "tx_hash": entry["transactionHash"].hex(),
+            "block_number": entry["blockNumber"],
+        })
+
+    return events
+
+
+def verify_topup_transfer(tx_hash: str, expected_from: str, expected_value: float) -> dict | None:
+    """Проверяет конкретную USDC Transfer транзакцию.
+
+    Ищет событие Transfer(from, AGENTPAY_WALLET, value) с данным tx_hash.
+    Проверяет что отправитель совпадает с expected_from и сумма достаточна.
+    Возвращает детали транзакции или None если не найдена/не совпадает.
+    """
+    try:
+        receipt = w3.eth.get_transaction_receipt(tx_hash)
+    except Exception:
+        return None
+
+    if not receipt:
+        return None
+
+    logs = usdc_contract.events.Transfer().process_receipt(receipt)
+    for log in logs:
+        args = log["args"]
+        if (args["to"].lower() == AGENTPAY_WALLET.lower()
+                and args["from"].lower() == expected_from.lower()
+                and args["value"] / 10**6 >= expected_value):
+            return {
+                "from": args["from"],
+                "to": args["to"],
+                "value": args["value"] / 10**6,
+                "tx_hash": tx_hash,
+                "block_number": receipt["blockNumber"],
+            }
+
+    return None
+
+
+# ─── Withdraw ─────────────────────────────────────────────────
 
 
 def build_withdraw_tx(recipient: str, amount_usdc: int) -> dict:

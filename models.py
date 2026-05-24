@@ -2,8 +2,6 @@
 
 from pydantic import BaseModel, Field
 from typing import Optional
-from decimal import Decimal
-from datetime import datetime
 
 
 class RegisterRequest(BaseModel):
@@ -26,6 +24,8 @@ class PayRequest(BaseModel):
     sender: str = Field(..., pattern=r"^0x[a-fA-F0-9]{40}$")
     recipient: str = Field(..., pattern=r"^0x[a-fA-F0-9]{40}$")
     amount: float = Field(..., gt=0)
+    nonce: int = Field(..., ge=0)
+    signature: str = Field(..., min_length=130, max_length=134)
 
 
 class PayResponse(BaseModel):
@@ -43,6 +43,10 @@ class TopupRequest(BaseModel):
     amount: float = Field(..., gt=0)
 
 
+class TopupConfirmRequest(BaseModel):
+    tx_hash: str = Field(..., min_length=66, max_length=66)
+
+
 class TopupResponse(BaseModel):
     deposit_address: str
     amount: float
@@ -54,6 +58,8 @@ class WithdrawRequest(BaseModel):
     sender: str = Field(..., pattern=r"^0x[a-fA-F0-9]{40}$")
     amount: float = Field(..., gt=0)
     recipient: str = Field(..., pattern=r"^0x[a-fA-F0-9]{40}$")
+    nonce: int = Field(..., ge=0)
+    signature: str = Field(..., min_length=130, max_length=134)
 
 
 class WithdrawResponse(BaseModel):
