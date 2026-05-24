@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException
 from decimal import Decimal
 
 from config import (
-    PORT, HOST, AGENTPAY_WALLET, FEE_PERCENT,
+    PORT, HOST, AGENTPAY_WALLET, WITHDRAW_FEE_PERCENT,
     MIN_TOPUP, MAX_TOPUP, MIN_PAY, MAX_PAY, MAX_PAY_DAY,
     MIN_WITHDRAW, MAX_WITHDRAW, MAX_WITHDRAW_DAY,
 )
@@ -101,8 +101,8 @@ def confirm_topup(address: str):
         make_error(1010, "Новых поступлений USDC не обнаружено")
 
     amount = balance_now - last_balance
-    fee = round(amount * FEE_PERCENT / 100, 2)
-    credit_amount = amount - fee
+    fee = 0.0  # topup — бесплатно
+    credit_amount = amount
     new_balance = agent["balance"] + credit_amount
 
     # Обновляем состояние кошелька
@@ -175,7 +175,7 @@ def withdraw(req: WithdrawRequest):
     if agent["balance"] < req.amount:
         make_error(1001, f"Недостаточно средств. Баланс: {agent['balance']}, требуется: {req.amount}")
 
-    fee = round(req.amount * FEE_PERCENT / 100, 2)
+    fee = round(req.amount * WITHDRAW_FEE_PERCENT / 100, 2)
     amount_to_send = req.amount - fee
     new_balance = agent["balance"] - req.amount
 

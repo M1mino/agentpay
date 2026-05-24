@@ -20,7 +20,8 @@ AGENTPAY_WALLET = "0x69D637b5a8317E78c5e561D7E94b234dDa551f47"
 USDC_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 
 # Комиссия
-FEE_PERCENT = 0.5  # 0.5%
+FEE_PERCENT = 0.0        # Больше не используется напрямую — заменено на отдельные
+WITHDRAW_FEE_PERCENT = 3.0  # 3% на вывод (topup и pay — 0%)
 
 # Лимиты
 MIN_TOPUP = 1       # 1 USDC
