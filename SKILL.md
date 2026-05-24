@@ -103,7 +103,7 @@ signature = signed.signature.hex()
 🔗 Пополнение на 50.00 CREDIT
 
   Отправьте 50 USDC на адрес:
-  0x69D637b5a8317E78c5e561D7E94b234dDa551f47
+  0x88c6dA1BaE72Ed2CA518B5117b16baDd249ca9a3
 
   Сеть: Base (EIP-155:8453)
 
