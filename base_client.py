@@ -1,7 +1,8 @@
 """AgentPay — интеграция с Base (read-only для старта)."""
 
+import os
 from web3 import Web3
-from config import BASE_RPC, USDC_CONTRACT, AGENTPAY_WALLET
+from config import BASE_RPC, USDC_CONTRACT, AGENTPAY_WALLET, AGENTPAY_PRIVATE_KEY
 
 w3 = Web3(Web3.HTTPProvider(BASE_RPC))
 
@@ -74,3 +75,27 @@ def build_withdraw_tx(recipient: str, amount_usdc: int) -> dict:
         "gasPrice": w3.eth.gas_price,
     })
     return tx
+
+
+def send_usdc(recipient: str, amount_usdc: int) -> str:
+    """Подписывает и отправляет USDC на адрес получателя.
+    Возвращает tx hash."""
+    if not AGENTPAY_PRIVATE_KEY:
+        raise ValueError("AGENTPAY_PRIVATE_KEY не задан. Укажи X402_PRIVATE_KEY в .env")
+
+    checksum = Web3.to_checksum_address(recipient)
+    tx = usdc_contract.functions.transfer(
+        checksum, amount_usdc
+    ).build_transaction({
+        "from": Web3.to_checksum_address(AGENTPAY_WALLET),
+        "nonce": w3.eth.get_transaction_count(
+            Web3.to_checksum_address(AGENTPAY_WALLET)
+        ),
+        "gas": 100_000,
+        "gasPrice": w3.eth.gas_price,
+        "chainId": 8453,
+    })
+
+    signed = w3.eth.account.sign_transaction(tx, AGENTPAY_PRIVATE_KEY)
+    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+    return tx_hash.hex()

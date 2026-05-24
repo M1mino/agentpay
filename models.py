@@ -62,6 +62,7 @@ class WithdrawResponse(BaseModel):
     fee: float
     recipient: str
     status: str = "processing"
+    tx_hash: Optional[str] = None
 
 
 class HistoryResponse(BaseModel):

@@ -20,7 +20,7 @@ from models import (
     PayRequest, PayResponse, TopupRequest, TopupResponse,
     WithdrawRequest, WithdrawResponse, HistoryResponse, ErrorResponse,
 )
-from base_client import is_connected, get_usdc_balance
+from base_client import is_connected, get_usdc_balance, send_usdc
 
 app = FastAPI(title="AgentPay", version="0.1.0")
 
@@ -183,19 +183,28 @@ def withdraw(req: WithdrawRequest):
 
     # Списываем CREDIT сразу
     update_balance(req.sender, new_balance)
-    add_transaction(tx_id, "withdraw", req.sender, req.recipient, req.amount, fee, "processing")
 
-    # TODO: реальная отправка USDC через приватный ключ
-    # tx = build_withdraw_tx(req.recipient, int(amount_to_send * 10**6))
-    # signed = w3.eth.account.sign_transaction(tx, private_key)
-    # w3.eth.send_raw_transaction(signed.raw_transaction)
+    # Отправляем USDC на Base
+    try:
+        tx_hash = send_usdc(req.recipient, int(amount_to_send * 10**6))
+        status = "completed"
+    except ValueError as e:
+        if "AGENTPAY_PRIVATE_KEY" in str(e):
+            # Ключ не задан — помечаем как manual
+            status = "pending_manual"
+            tx_hash = None
+        else:
+            raise
+
+    add_transaction(tx_id, "withdraw", req.sender, req.recipient, req.amount, fee, status, {"tx_hash": tx_hash})
 
     return WithdrawResponse(
         tx_id=tx_id,
         amount=req.amount,
         fee=fee,
         recipient=req.recipient,
-        status="processing",
+        status=status,
+        tx_hash=tx_hash,
     )
 
 

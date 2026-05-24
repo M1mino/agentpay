@@ -1,5 +1,7 @@
 """AgentPay — конфигурация."""
 
+import os
+
 # Сервер
 HOST = "0.0.0.0"
 PORT = 8004
@@ -32,3 +34,6 @@ MAX_WITHDRAW_DAY = 10_000
 
 # Nonce для snapshot'ов
 NONCE_FILE = "nonce.txt"
+
+# Приватный ключ кошелька AgentPay (из .env)
+AGENTPAY_PRIVATE_KEY = os.environ.get("X402_PRIVATE_KEY", "")
