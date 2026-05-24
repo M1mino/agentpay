@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException
 from decimal import Decimal
 
 from config import (
-    PORT, HOST, AGENTPAY_WALLET, WITHDRAW_FEE_PERCENT,
+    PORT, HOST, AGENTPAY_WALLET, PAY_FEE_PERCENT, WITHDRAW_FEE_PERCENT,
     MIN_TOPUP, MAX_TOPUP, MIN_PAY, MAX_PAY, MAX_PAY_DAY,
     MIN_WITHDRAW, MAX_WITHDRAW, MAX_WITHDRAW_DAY,
 )
@@ -137,10 +137,11 @@ def pay(req: PayRequest):
     if sender["balance"] < req.amount:
         make_error(1001, f"Недостаточно средств. Баланс: {sender['balance']}, требуется: {req.amount}")
 
-    # Комиссия 0% на pay
-    fee = 0.0
+    # Комиссия 0.5% на pay
+    fee = round(req.amount * PAY_FEE_PERCENT / 100, 2)
+    amount_after_fee = req.amount - fee
     sender_new = sender["balance"] - req.amount
-    recipient_new = recipient["balance"] + req.amount
+    recipient_new = recipient["balance"] + amount_after_fee
 
     tx_id = f"pay_{uuid.uuid4().hex[:12]}"
 
