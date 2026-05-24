@@ -38,4 +38,4 @@ MAX_WITHDRAW_DAY = 10_000
 NONCE_FILE = "nonce.txt"
 
 # Приватный ключ кошелька AgentPay (из .env)
-AGENTPAY_PRIVATE_KEY = os.environ.get("X402_PRIVATE_KEY", "")
+AGENTPAY_PRIVATE_KEY = os.environ.get("X402_PRIVATE_KEY", "") or ""

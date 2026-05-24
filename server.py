@@ -37,7 +37,7 @@ app = FastAPI(title="AgentPay", version="0.2.0")
 
 
 RATE_LIMIT_REQUESTS = 20
-RATE_LIMIT_WINDOW = 1  # секунда
+RATE_LIMIT_WINDOW = 10  # секунд (окно для rate limit)
 _rate_store: dict[str, list[float]] = defaultdict(list)
 
 

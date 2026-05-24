@@ -2,6 +2,7 @@
 
 import os
 from web3 import Web3
+from eth_account.messages import encode_defunct
 from config import BASE_RPC, USDC_CONTRACT, AGENTPAY_WALLET, AGENTPAY_PRIVATE_KEY
 
 w3 = Web3(Web3.HTTPProvider(BASE_RPC))
@@ -23,6 +24,15 @@ USDC_ABI = [
         ],
         "name": "allowance",
         "outputs": [{"name": "remaining", "type": "uint256"}],
+        "type": "function",
+    },
+    {
+        "inputs": [
+            {"name": "recipient", "type": "address"},
+            {"name": "amount", "type": "uint256"},
+        ],
+        "name": "transfer",
+        "outputs": [{"name": "", "type": "bool"}],
         "type": "function",
     },
     {
@@ -68,8 +78,8 @@ def recover_signer(message: str, signature: str) -> str:
 
     Возвращает: 0x-адрес, который подписал сообщение.
     """
-    message_hash = Web3.keccak(text=f"\x19Ethereum Signed Message:\n{len(message)}{message}")
-    recovered = w3.eth.account.recover_hash(message_hash, signature=signature)
+    msg_encoded = encode_defunct(text=message)
+    recovered = w3.eth.account.recover_message(msg_encoded, signature=signature)
     return recovered
 
 
