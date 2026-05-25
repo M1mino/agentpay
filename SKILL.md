@@ -1,212 +1,263 @@
 ---
 name: agentpay
-description: AgentPay — платёжный слой для AI-агентов. Позволяет агенту пополнять баланс в USDC на Base, платить другим агентам во внутренней валюте CREDIT (1 CREDIT = 1 USDC), и выводить средства обратно. Используй когда агенту нужно заплатить другому агенту или сервису за данные, API, инструменты.
+description: Payment layer for AI agents. Register agents, topup CREDIT balance by sending USDC on Base, pay other agents with signed EIP-191 transactions, and withdraw CREDIT back to USDC. Use when an agent needs to pay another agent or service for data, API access, or tools — or when building agent-to-agent payment flows. Triggers: "pay agent", "send payment", "topup balance", "withdraw funds", "agent transaction", "agent-to-agent payment".
+allowed-tools:
+  - "Bash(execute) for curl HTTP requests"
+  - "Read for checking SKILL.md reference files"
+version: "1.0.0"
+author: "Anfisa <anfisa@agentpay.dev>"
+license: MIT
+compatibility: "Requires Python 3.11+, web3.py 7+, access to Base network (mainnet or sepolia). Agent needs an Ethereum wallet (private key) for signing transactions."
+tags:
+  - payments
+  - agents
+  - base
+  - usdc
+  - crypto
+  - blockchain
+  - agent-to-agent
+  - microtransactions
 ---
 
 # AgentPay
 
-Платежи между AI-агентами. Внутренняя валюта CREDIT, привязанная к USDC 1:1. Base USDC на вход и выход.
+AgentPay is a REST API payment layer for AI agents. Agents register with a Base address, receive CREDIT (1 CREDIT = 1 USDC) when a user sends USDC to the AgentPay wallet, and transfer CREDIT to other registered agents via signed EIP-191 transactions. Withdrawals convert CREDIT back to USDC on Base.
 
-## Подпись запросов
+## Overview
 
-Все операции pay и withdraw требуют **подписи от приватного ключа агента**. Формат сообщения:
+AgentPay provides instant, gasless payments between AI agents using an internal CREDIT currency pegged 1:1 to USDC. On-chain settlements happen only on deposit (topup) and withdrawal — intra-agent transfers are database operations with cryptographic signature verification.
 
+**Key concepts:**
+- **CREDIT** — internal currency, 1 CREDIT = 1 USDC (fixed peg)
+- **Nonce** — per-agent counter that increments on each transaction, prevents replay attacks
+- **Signature** — every pay and withdraw request must be signed with the agent's Ethereum private key (EIP-191 personal_sign)
+- **Audit** — the `/audit` endpoint publishes total CREDIT vs on-chain USDC balance for transparency
+
+**Fee structure:**
+| Operation | Fee |
+|-----------|-----|
+| Topup (USDC → CREDIT) | 0% |
+| Pay (CREDIT transfer) | 0.5% |
+| Withdraw (CREDIT → USDC) | 3% |
+
+## Prerequisites
+
+Before using AgentPay, ensure the following are available:
+
+1. **AgentPay server running** — deployed and accessible at `http://{host}:8004`
+2. **Agent Ethereum wallet** — the agent must have a Base address and its private key
+3. **USDC on Base** — the user must have USDC to topup the agent's CREDIT balance
+4. **Network access** — ability to make HTTP requests to the AgentPay server
+5. **Python 3.11+ with web3.py** — for signing transactions (or any Ethereum-compatible signing tool)
+
+## Instructions
+
+### 1. Register the Agent
+
+Register the agent's Base address to create an AgentPay account:
+
+```bash
+curl -X POST http://localhost:8004/register \
+  -H "Content-Type: application/json" \
+  -d '{"address": "0xAgentAddressHere..."}'
 ```
-agentpay_v1:{action}:{sender}:{recipient}:{amount}:{nonce}
+
+**Response:** Returns `agent_id`, `address`, and `created_at`.
+
+### 2. Check Balance
+
+```bash
+curl http://localhost:8004/balance/0xAgentAddressHere...
 ```
 
-Пример сообщения для подписи:
+### 3. Topup (Deposit USDC)
+
+Send USDC to the AgentPay wallet address (retrieved from `/topup`), then confirm:
+
+```bash
+# Step 1: Get deposit address
+curl -X POST http://localhost:8004/topup \
+  -H "Content-Type: application/json" \
+  -d '{"address": "0xAgentAddressHere...", "amount": 100}'
+
+# Step 2: After sending USDC on Base, confirm with tx_hash
+curl -X POST http://localhost:8004/topup/confirm/0xAgentAddressHere... \
+  -H "Content-Type: application/json" \
+  -d '{"tx_hash": "0xTransactionHashOnBase..."}'
 ```
-agentpay_v1:pay:0xAbc...:0xDef...:10.50:0
+
+### 4. Pay Another Agent
+
+This is the core operation. The agent must sign the request with its private key.
+
+**Step 4a:** Get the current nonce:
+```bash
+curl http://localhost:8004/nonce/0xAgentAddressHere...
 ```
 
-Агент подписывает через **personal_sign** (EIP-191) своим Ethereum-ключом. Сервер восстанавливает адрес из подписи и проверяет что отправитель совпадает.
-
-**Последовательность:**
-1. `GET /nonce/{address}` — получить текущий nonce
-2. Собрать сообщение: `agentpay_v1:{action}:{sender}:{recipient}:{amount}:{nonce}`
-3. Подписать приватным ключом (personal_sign / EIP-191)
-4. Отправить POST-запрос с полем `signature`
-
-**Nonce** — счётчик, увеличивается на 1 после каждой успешной операции. Защищает от double-spend.
-
-**Пример подписи на Python:**
+**Step 4b:** Sign the message using EIP-191 (personal_sign):
 ```python
 from web3 import Web3
+from eth_account.messages import encode_defunct
+
 w3 = Web3()
-message = "agentpay_v1:pay:0xSender...:0xRecipient...:10.50:0"
-message_hash = Web3.keccak(text=f"\\x19Ethereum Signed Message:\\n{len(message)}{message}")
-signed = w3.eth.account.sign_hash(message_hash, private_key="0x...")
-signature = signed.signature.hex()
-# Подпись — строка 132 hex-символа (0x...)
+message = "agentpay_v1:pay:0xSender:0xRecipient:10.50:0"
+message_encoded = encode_defunct(text=message)
+signed = w3.eth.account.sign_message(message_encoded, private_key="0xPrivateKey")
+signature = signed.signature.hex()  # 132 hex chars
 ```
 
-## Команды
-
-### /balance
-
-Проверить баланс агента в CREDIT.
-
-**Формат:** `/balance`
-
-**Ответ:**
-```
-Баланс: 150.50 CREDIT (≈ $150.50)
-Последнее обновление: 22.05.2026 18:30 UTC
-```
-
-### /pay <agent> <amount>
-
-Перевести CREDIT другому агенту. Получатель указывается по Base-адресу (0x...). Агент должен быть зарегистрирован в AgentPay (см. /register).
-
-**Формат:** `/pay 0xD1c64a16a35d51eC50438512104Eb494806EaE8d 10.50`
-
-**Параметры:**
-- `agent` — Base-адрес получателя (42 символа, 0x + 40 hex)
-- `amount` — сумма в CREDIT (минимум 0.01, максимум 1 000, до 2 знаков)
-
-**Ответ при успехе:**
-```
-✅ Перевод выполнен
-  От:  Agent#A (Hermes-7f3b...)
-  Кому: 0xD1c6... (зарегистрирован: Agent#B)
-  Сумма: 10.50 CREDIT ($10.50)
-  Остаток: 140.00 CREDIT
-  ID: tx_abc123
+**Step 4c:** Send the signed request:
+```bash
+curl -X POST http://localhost:8004/pay \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sender": "0xSender...",
+    "recipient": "0xRecipient...",
+    "amount": 10.50,
+    "nonce": 0,
+    "signature": "0xSignature..."
+  }'
 ```
 
-**Ответ при ошибке:**
-```
-❌ Недостаточно средств
-  Баланс: 5.00 CREDIT
-  Требуется: 10.50 CREDIT
+The sender loses `amount` CREDIT. The recipient receives `amount - (amount * 0.5%)`. The sender's nonce increments by 1.
 
-❌ Получатель не найден
-  Адрес 0xD1c6... не зарегистрирован в AgentPay.
-  Агент должен выполнить /register
+### 5. Withdraw
 
-❌ Неверный адрес
-  "0xabc" — адрес должен быть 42 символа (0x + 40 hex)
-```
+Same signing flow as pay. Convert CREDIT back to USDC:
 
-### /topup <amount>
-
-Пополнить баланс CREDIT. Показывает адрес для отправки USDC на Base. После подтверждения транзакции — баланс обновляется автоматически.
-
-**Формат:** `/topup 50`
-
-**Параметры:**
-- `amount` — сумма в USDC (минимум 1, максимум 10 000)
-
-**Ответ:**
-```
-🔗 Пополнение на 50.00 CREDIT
-
-  Отправьте 50 USDC на адрес:
-  0x88c6dA1BaE72Ed2CA518B5117b16baDd249ca9a3
-
-  Сеть: Base (EIP-155:8453)
-
-  Статус: ожидание транзакции
-  Баланс обновится после 1 подтверждения (~1-2 мин)
+```bash
+curl -X POST http://localhost:8004/withdraw \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sender": "0xSender...",
+    "amount": 100.0,
+    "recipient": "0xRecipientOnBase...",
+    "nonce": 1,
+    "signature": "0xSignature..."
+  }'
 ```
 
-### /withdraw <amount> <address>
+The agent loses `amount` CREDIT. The recipient receives `(amount * 0.97)` USDC on Base (3% fee).
 
-Вывести CREDIT в USDC на Base.
+### 6. Audit
 
-**Формат:** `/withdraw 25 0xD1c64a16a35d51eC50438512104Eb494806EaE8d`
+Check system transparency — USDC on wallet vs total CREDIT in circulation:
 
-**Параметры:**
-- `amount` — сумма в CREDIT (минимум 10, максимум 5 000)
-- `address` — адрес кошелька на Base (42 символа, 0x + 40 hex)
-
-**Ответ:**
-```
-✅ Запрос на вывод принят
-  Сумма: 25.00 CREDIT
-  К получению: 24.25 USDC (комиссия 3%)
-  Адрес: 0xD1c6...
-  Статус: в обработке
-  Ожидаемое время: 5-10 минут
+```bash
+curl http://localhost:8004/audit
 ```
 
-### /history
+## Output
 
-Показать последние транзакции.
+All endpoints return JSON. Successful responses include a `status` field (`"completed"` or `"pending"`) and operation-specific data.
 
-**Формат:** `/history` или `/history 20`
-
-**Параметры:**
-- количество (опционально, по умолч. 10, макс. 50)
-
-**Ответ:**
-```
-📜 Последние транзакции
-  # | Дата         | Тип      | Сумма   | Статус
-  1 | 22.05 18:30 | topup    | +50.00  | ✅
-  2 | 22.05 18:25 | pay      | -10.50  | ✅
-  3 | 22.05 18:00 | pay      | -5.00   | ✅
-  4 | 22.05 17:30 | withdraw | -25.00  | ⏳
-  5 | 22.05 16:00 | topup    | +100.00 | ✅
-
-  Баланс: 140.00 CREDIT
+**Pay response example:**
+```json
+{
+  "tx_id": "pay_a1b2c3d4e5f6",
+  "sender": "0xSender...",
+  "recipient": "0xRecipient...",
+  "amount": 10.50,
+  "fee": 0.05,
+  "sender_balance_after": 89.50,
+  "status": "completed"
+}
 ```
 
-### /register
-
-Зарегистрировать агента для приёма платежей. Без регистрации другие агенты не смогут отправлять CREDIT на твой адрес.
-
-**Формат:** `/register`
-
-**Ответ:**
-```
-✅ Агент зарегистрирован
-  ID: Agent#B
-  Адрес: 0xD1c6...
-  Дата: 22.05.2026
-
-  Теперь другие агенты могут отправлять тебе CREDIT
-  через /pay 0xD1c6... <сумма>
+**Audit response example:**
+```json
+{
+  "usdc_balance": 500.00,
+  "total_credit": 485.75,
+  "difference": 14.25,
+  "difference_note": "profit_buffer",
+  "agent_count": 3
+}
 ```
 
-## Обработка ошибок
+## Error Handling
 
-| Ситуация | Код | Сообщение |
-|----------|-----|-----------|
-| Недостаточно CREDIT | 1001 | "Недостаточно средств. Баланс: X, требуется: Y" |
-| Получатель не найден | 1002 | "Адрес не зарегистрирован в AgentPay" |
-| Неверный адрес | 1003 | "Адрес должен быть 42 символа (0x + 40 hex)" |
-| Сумма меньше минимума | 1004 | "Минимальная сумма: X" |
-| Сумма больше максимума | 1005 | "Максимальная сумма: X" |
-| Сеть не поддерживается | 1006 | "Только сеть Base на данный момент" |
-| Транзакция занята | 1012 | "Перевод USDC не найден. Проверьте tx_hash и адрес отправителя." |
-| Неверный nonce | 1013 | "Неверный nonce. Текущий: X, получен: Y" |
-| Неверная подпись | 1014 | "Неверная подпись. Сообщение для подписи: ..." |
-| Слишком много запросов | 2001 | "Повторите попытку позже" |
+| HTTP Code | Error Code | Cause | Solution |
+|-----------|-----------|-------|----------|
+| 400 | 1001 | Insufficient CREDIT balance | Check agent balance via `/balance` before paying |
+| 400 | 1002 | Recipient not registered | Ensure recipient calls `/register` first |
+| 400 | 1013 | Wrong nonce | Get fresh nonce from `/nonce/{address}` — nonce must match server state exactly |
+| 400 | 1014 | Invalid signature | Verify message format: `agentpay_v1:{action}:{sender}:{recipient}:{amount}:{nonce}`. Check private key is correct |
+| 400 | 1004 | Amount below minimum | Topup: min 1 USDC. Pay: min 0.01 CREDIT. Withdraw: min 10 CREDIT |
+| 400 | 1005 | Amount exceeds maximum | Topup: max 10,000 USDC. Pay: max 1,000 CREDIT. Withdraw: max 5,000 CREDIT |
+| 400 | 1012 | Transfer event not found | Verify tx_hash is valid on Base network and sender address matches |
+| 429 | 2001 | Rate limit exceeded | Wait 10 seconds before retrying (20 POST requests per 10s window) |
 
-## Лимиты
+**Missing environment variable:** If `X402_PRIVATE_KEY` is not set in the server's `.env`, withdraw returns `status: "pending_manual"` instead of `"completed"`. Withdrawals are queued but not executed.
 
-| Операция | Минумум | Максимум | За день |
-|----------|---------|----------|---------|
-| topup | 1 USDC | 10 000 USDC | 50 000 USDC |
-| pay | 0.01 CREDIT | 1 000 CREDIT | 10 000 CREDIT |
-| withdraw | 10 CREDIT | 5 000 CREDIT | 10 000 CREDIT |
+**Network error:** If Base RPC is unreachable, `/health` returns `{"status": "base_disconnected"}`. Check that the server has internet access to the Base network.
 
-## Как это работает под капотом
+## Examples
 
-1. **topup** — агент отправляет USDC на наш адрес Base. После 1 подтверждения — зачисляем CREDIT.
-2. **pay** — списываем CREDIT в БД. Без газа, мгновенно. Nonce защищает от двойного списания.
-3. **withdraw** — списываем CREDIT из БД, отправляем USDC из нашего кошелька.
-4. **1 CREDIT = 1 USDC** строго. Никакого плавающего курса.
-5. **Комиссия:** 0% на topup, 0.5% на pay, 3% на withdraw
+### Example 1: Two agents — Alice pays Bob 10 CREDIT
 
-**Прозрачность (в разработке):** Балансы агентов будут фиксироваться snapshot'ами с подписью. Корень Merkle будет публиковаться на Base — доказуемость без газа на каждый перевод.
+**Setup:**
+```bash
+# Alice registers
+curl -X POST http://localhost:8004/register -H "Content-Type: application/json" \
+  -d '{"address": "0xAliceAddress..."}'
+# → {"agent_id": "Agent#A1A1", ...}
 
-## Ограничения
+# Bob registers
+curl -X POST http://localhost:8004/register -H "Content-Type: application/json" \
+  -d '{"address": "0xBobAddress..."}'
+# → {"agent_id": "Agent#B0B0", ...}
 
-- Только сеть Base
-- Комиссия: 0% на topup, 0.5% на pay, 3% на withdraw
-- Время вывода: 5-10 минут
-- Минимальный topup: 1 USDC
-- Минимальный withdraw: 10 CREDIT
+# Alice's balance is credited (by user sending USDC)
+# Alice checks balance: 100 CREDIT
+```
+
+**Payment:**
+```bash
+# 1. Alice gets nonce: 0
+nonce=$(curl -s http://localhost:8004/nonce/0xAliceAddress... | python3 -c "import json,sys; print(json.load(sys.stdin)['nonce'])")
+
+# 2. Alice signs: agentpay_v1:pay:0xAlice...:0xBob...:10.0:0
+# (signing happens off-chain with private key)
+
+# 3. Alice sends pay request
+curl -X POST http://localhost:8004/pay -H "Content-Type: application/json" \
+  -d '{"sender": "0xAlice...", "recipient": "0xBob...", "amount": 10.0, "nonce": 0, "signature": "0xSignature..."}'
+```
+
+**Result:** Alice loses 10 CREDIT (balance: 90). Bob receives 9.95 CREDIT (10 - 0.05 fee). Nonce becomes 1.
+
+### Example 2: Agent pays for API access
+
+An AI agent needs to call a paid API:
+
+```bash
+# Agent pays the API provider agent 0.50 CREDIT per request
+curl -X POST http://localhost:8004/pay -H "Content-Type: application/json" \
+  -d '{
+    "sender": "0xAgent...",
+    "recipient": "0xApiProvider...",
+    "amount": 0.50,
+    "nonce": 3,
+    "signature": "0x..."
+  }'
+```
+
+The API provider agent verifies the payment via `/history`, then serves the request.
+
+### Example 3: Full audit check
+
+```bash
+curl http://localhost:8004/audit
+# → Shows: usdc_balance matches total_credit + fees collected (transparency)
+```
+
+## Resources
+
+- **GitHub repository:** [github.com/M1mino/agentpay](https://github.com/M1mino/agentpay)
+- **AgentPay SKILL.md:** Contains complete command reference and signing examples
+- **Base network docs:** [base.org](https://base.org)
+- **USDC on Base:** Native USDC contract `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`
+- **EIP-191 (personal_sign):** [eips.ethereum.org/EIPS/eip-191](https://eips.ethereum.org/EIPS/eip-191)
+- **SKILL.md specification:** [agentskills.io/specification](https://agentskills.io/specification)

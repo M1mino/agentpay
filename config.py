@@ -9,14 +9,14 @@ PORT = 8004
 # База данных
 DATABASE_URL = "sqlite:///agentpay.db"
 
-# Base сеть
+# Base сеть (mainnet)
 BASE_RPC = "https://mainnet.base.org"
 BASE_CHAIN_ID = 8453
 
 # Кошелёк AgentPay (приём USDC) — соответствует X402_PRIVATE_KEY из .env
 AGENTPAY_WALLET = "0x88c6dA1BaE72Ed2CA518B5117b16baDd249ca9a3"
 
-# USDC контракт на Base
+# USDC контракт на Base (mainnet)
 USDC_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 
 # Комиссия
