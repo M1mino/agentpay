@@ -393,6 +393,44 @@ def test_history_after_pay():
     assert resp.json()["total"] == 1
 
 
+# ─── Тесты: Audit ────────────────────────────────────────
+
+
+def test_audit_empty():
+    """/audit возвращает структуру с нулями."""
+    resp = client.get("/audit")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "usdc_balance" in data
+    assert "total_credit" in data
+    assert "difference" in data
+    assert "agent_count" in data
+    assert "recent_transactions" in data
+    assert data["agent_count"] == 0
+    assert data["total_credit"] == 0.0
+
+
+def test_audit_after_pay():
+    """/audit показывает данные после операций."""
+    client.post("/register", json={"address": TEST_ADDRESS})
+    client.post("/register", json={"address": TEST_RECIPIENT})
+    from database import update_balance
+    update_balance(TEST_ADDRESS, 100.0)
+
+    nonce = get_agent_nonce(TEST_ADDRESS)
+    sig = sign_msg(build_message("pay", TEST_ADDRESS, TEST_RECIPIENT, 10.0, nonce))
+    client.post("/pay", json={
+        "sender": TEST_ADDRESS, "recipient": TEST_RECIPIENT,
+        "amount": 10.0, "nonce": nonce, "signature": sig,
+    })
+
+    resp = client.get("/audit")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["agent_count"] == 2
+    assert len(data["recent_transactions"]) >= 1
+
+
 # ─── Тесты: Topup (без реальной Base сети) ─────────────────
 
 
