@@ -3,3 +3,4 @@ __pycache__/
 .test_agentpay.db
 agentpay.db
 nonce.txt
+.env

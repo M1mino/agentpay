@@ -1,20 +1,27 @@
 [Unit]
-Description=AgentPay — Payment layer for AI agents
-After=network.target
+Description=AgentPay — Payment Layer for AI Agents
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=root
+Group=root
+
 WorkingDirectory=/opt/agentpay
 EnvironmentFile=/opt/agentpay/.env
-ExecStart=/usr/bin/python3 server.py
+ExecStart=/opt/agentpay/venv/bin/python server.py
+
 Restart=always
 RestartSec=5
 
 # Безопасность
 NoNewPrivileges=true
+ProtectHome=false
 ProtectSystem=full
-PrivateTmp=true
+
+# Лимиты
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target
