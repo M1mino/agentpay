@@ -222,6 +222,36 @@ def mark_event_processed(tx_hash: str, event_type: str):
     conn.close()
 
 
+# ─── Audit (балансовая сверка) ────────────────────────────────
+
+
+def get_total_credit() -> float:
+    """Сумма CREDIT всех агентов."""
+    conn = get_db()
+    row = conn.execute("SELECT COALESCE(SUM(balance), 0.0) as total FROM agents").fetchone()
+    conn.close()
+    return row["total"]
+
+
+def get_agent_count() -> int:
+    """Количество зарегистрированных агентов."""
+    conn = get_db()
+    row = conn.execute("SELECT COUNT(*) as count FROM agents").fetchone()
+    conn.close()
+    return row["count"]
+
+
+def get_recent_transactions(limit: int = 10) -> list:
+    """Последние транзакции (любые, без фильтра по адресу)."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM transactions ORDER BY created_at DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 def is_event_processed(tx_hash: str) -> bool:
     conn = get_db()
     row = conn.execute(

@@ -2,6 +2,7 @@
 
 import uuid
 import time
+from datetime import datetime
 from collections import defaultdict
 from fastapi import FastAPI, HTTPException, Request
 from decimal import Decimal
@@ -15,6 +16,7 @@ from database import (
     init_db, register_agent, get_agent, get_balance,
     update_balance, add_transaction, get_transactions,
     get_agent_nonce, increment_agent_nonce,
+    get_total_credit, get_agent_count, get_recent_transactions,
     is_event_processed, mark_event_processed,
     get_wallet_state, update_wallet_state,
 )
@@ -315,6 +317,44 @@ def history(address: str, limit: int = 10):
 
     txs = get_transactions(address, limit)
     return HistoryResponse(transactions=txs, total=len(txs))
+
+
+# ─── Audit (балансовая сверка) ─────────────────────────────
+
+
+@app.get("/audit")
+def audit():
+    """Прозрачность: баланс USDC vs CREDIT, статистика."""
+    usdc_balance = get_usdc_balance(AGENTPAY_WALLET)
+    total_credit = round(get_total_credit(), 2)
+    diff = round(usdc_balance - total_credit, 2)
+    agent_count = get_agent_count()
+    recent_txs = get_recent_transactions(10)
+
+    # Форматируем tx для читаемости
+    txs = []
+    for tx in recent_txs:
+        txs.append({
+            "tx_id": tx["tx_id"],
+            "type": tx["tx_type"],
+            "amount": tx["amount"],
+            "fee": tx["fee"],
+            "status": tx["status"],
+            "created_at": tx["created_at"],
+        })
+
+    return {
+        "timestamp": datetime.utcnow().isoformat(),
+        "wallet": AGENTPAY_WALLET,
+        "network": "Base",
+        "usdc_balance": round(usdc_balance, 2),
+        "total_credit": total_credit,
+        "difference": diff,  # >0 = прибыль/буфер, <0 = проблема
+        "difference_note": "profit_buffer" if diff >= 0 else "DEFICIT",
+        "agent_count": agent_count,
+        "recent_transactions": txs,
+        "version": "0.2.0",
+    }
 
 
 # ─── Статус сети ──────────────────────────────────────────
